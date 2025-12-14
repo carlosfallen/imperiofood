@@ -1,0 +1,16 @@
+name = "imperio-pizzas"
+compatibility_date = "2024-12-01"
+pages_build_output_dir = "./dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "imperio_pizzas_db"
+database_id = "f9e18068-364c-42c0-8c1a-50b6764f611c"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "imperio-pizzas-media"
+
+[vars]
+ADMIN_SECRET = "segredodapizza"
+WHATSAPP_PHONE = "5589991333316"
