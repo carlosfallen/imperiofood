@@ -1,0 +1,483 @@
+---
+// FILE: src/pages/checkout.astro
+import Layout from '../layouts/Layout.astro';
+
+const orderOrigin = Astro.locals.orderOrigin;
+const isInternalOrder = orderOrigin?.type === 'internal';
+const isExternalOrder = orderOrigin?.type === 'external';
+---
+
+<Layout title="Finalizar Pedido - Império Pizzas">
+  <main class="checkout-page">
+    <div class="container">
+      <h1>Finalizar Pedido</h1>
+
+      {isInternalOrder && (
+        <div class="order-type-info">
+          <span class="badge-internal">🏠 Pedido da Mesa {orderOrigin.tableNumber}</span>
+        </div>
+      )}
+
+      <div class="checkout-layout">
+        <div class="checkout-form">
+          <form id="checkoutForm">
+            <div class="form-section">
+              <h2>Informações do Cliente</h2>
+              
+              <div class="form-group">
+                <label for="customerName">Nome {isExternalOrder && '*'}</label>
+                <input 
+                  type="text" 
+                  id="customerName" 
+                  name="customerName"
+                  placeholder="Seu nome"
+                  required={isExternalOrder}
+                />
+              </div>
+
+              {isExternalOrder && (
+                <>
+                  <div class="form-group">
+                    <label for="customerPhone">Telefone *</label>
+                    <input 
+                      type="tel" 
+                      id="customerPhone" 
+                      name="customerPhone"
+                      placeholder="(00) 00000-0000"
+                      required
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label>Tipo de Pedido *</label>
+                    <div class="radio-group">
+                      <label class="radio-label">
+                        <input type="radio" name="orderDeliveryType" value="pickup" checked />
+                        <span>📦 Retirada no Balcão</span>
+                      </label>
+                      <label class="radio-label">
+                        <input type="radio" name="orderDeliveryType" value="delivery" />
+                        <span>🚚 Delivery</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div id="deliveryFields" style="display: none;">
+                    <div class="form-group">
+                      <label for="customerAddress">Endereço *</label>
+                      <input 
+                        type="text" 
+                        id="customerAddress" 
+                        name="customerAddress"
+                        placeholder="Rua, número, complemento"
+                      />
+                    </div>
+
+                    <div class="form-group">
+                      <label for="customerPostalCode">CEP</label>
+                      <input 
+                        type="text" 
+                        id="customerPostalCode" 
+                        name="customerPostalCode"
+                        placeholder="00000-000"
+                        maxlength="9"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div class="form-section">
+              <h2>Pagamento e Observações</h2>
+              
+              <div class="form-group">
+                <label for="paymentMethod">Forma de Pagamento</label>
+                <select id="paymentMethod" name="paymentMethod">
+                  <option value="">Selecione</option>
+                  <option value="Dinheiro">Dinheiro</option>
+                  <option value="Cartão de Débito">Cartão de Débito</option>
+                  <option value="Cartão de Crédito">Cartão de Crédito</option>
+                  <option value="PIX">PIX</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="notes">Observações</label>
+                <textarea 
+                  id="notes" 
+                  name="notes" 
+                  rows="4"
+                  placeholder="Alguma observação sobre o pedido?"
+                ></textarea>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary submit-button">
+              Confirmar Pedido
+            </button>
+          </form>
+        </div>
+
+        <div class="checkout-summary">
+          <h2>Resumo do Pedido</h2>
+          <div id="orderSummary"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<script is:inline define:vars={{ orderOrigin }}>
+  const DELIVERY_FEE = 8.00;
+
+  function getCart() {
+    if (typeof window === 'undefined') return { items: [], subtotal: 0, itemCount: 0 };
+    const stored = localStorage.getItem('imperio_cart');
+    if (!stored) return { items: [], subtotal: 0, itemCount: 0 };
+    return JSON.parse(stored);
+  }
+
+  function renderSummary() {
+    const cart = getCart();
+    const summaryDiv = document.getElementById('orderSummary');
+    
+    if (!summaryDiv) return;
+
+    if (cart.items.length === 0) {
+      summaryDiv.innerHTML = '<p class="empty-cart">Carrinho vazio</p>';
+      return;
+    }
+
+    const orderDeliveryTypeInputs = document.querySelectorAll('input[name="orderDeliveryType"]');
+    let isDelivery = false;
+    
+    orderDeliveryTypeInputs.forEach(input => {
+      if (input.checked && input.value === 'delivery') {
+        isDelivery = true;
+      }
+    });
+
+    const deliveryFee = orderOrigin?.type === 'external' && isDelivery ? DELIVERY_FEE : 0;
+    const total = cart.subtotal + deliveryFee;
+
+    let itemsHtml = cart.items.map(item => {
+      let details = '';
+      if (item.size) details += `<br><small>Tamanho: ${item.size.name}</small>`;
+      if (item.flavor) details += `<br><small>Sabor: ${item.flavor.name}</small>`;
+      details += `<br><small>Qtd: ${item.quantity}</small>`;
+
+      return `
+        <div class="summary-item">
+          <div>
+            <strong>${item.productName}</strong>
+            ${details}
+          </div>
+          <div class="summary-price">R$ ${item.totalPrice.toFixed(2)}</div>
+        </div>
+      `;
+    }).join('');
+
+    summaryDiv.innerHTML = `
+      <div class="summary-items">
+        ${itemsHtml}
+      </div>
+      <div class="summary-totals">
+        <div class="summary-row">
+          <span>Subtotal</span>
+          <span>R$ ${cart.subtotal.toFixed(2)}</span>
+        </div>
+        ${deliveryFee > 0 ? `
+          <div class="summary-row">
+            <span>Taxa de Entrega</span>
+            <span>R$ ${deliveryFee.toFixed(2)}</span>
+          </div>
+        ` : ''}
+        <div class="summary-row summary-total">
+          <span>Total</span>
+          <span>R$ ${total.toFixed(2)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const orderDeliveryTypeInputs = document.querySelectorAll('input[name="orderDeliveryType"]');
+    
+    orderDeliveryTypeInputs.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        const deliveryFields = document.getElementById('deliveryFields');
+        const addressInput = document.getElementById('customerAddress');
+        const postalCodeInput = document.getElementById('customerPostalCode');
+        
+        if (e.target.value === 'delivery') {
+          deliveryFields.style.display = 'block';
+          addressInput.required = true;
+        } else {
+          deliveryFields.style.display = 'none';
+          addressInput.required = false;
+          postalCodeInput.required = false;
+        }
+        
+        renderSummary();
+      });
+    });
+
+    const checkoutForm = document.getElementById('checkoutForm');
+    if (checkoutForm) {
+      checkoutForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const cart = getCart();
+        if (cart.items.length === 0) {
+          alert('Seu carrinho está vazio');
+          return;
+        }
+
+        const formData = new FormData(e.target);
+        const deliveryType = formData.get('orderDeliveryType');
+        const isDelivery = deliveryType === 'delivery';
+        const deliveryFee = orderOrigin?.type === 'external' && isDelivery ? DELIVERY_FEE : 0;
+
+        let orderType = 'internal';
+        if (orderOrigin?.type === 'external') {
+          orderType = isDelivery ? 'delivery' : 'pickup';
+        }
+
+        const orderData = {
+          order_type: orderType,
+          table_id: orderOrigin?.tableId || null,
+          table_number: orderOrigin?.tableNumber || null,
+          customer_name: formData.get('customerName') || null,
+          customer_phone: formData.get('customerPhone') || null,
+          customer_address: formData.get('customerAddress') || null,
+          customer_postal_code: formData.get('customerPostalCode') || null,
+          delivery_fee: deliveryFee,
+          subtotal: cart.subtotal,
+          total: cart.subtotal + deliveryFee,
+          payment_method: formData.get('paymentMethod') || null,
+          notes: formData.get('notes') || null,
+          items: cart.items.map(item => ({
+            product_id: item.productId,
+            product_name: item.productName,
+            size_name: item.size?.name || null,
+            flavor_name: item.flavor?.name || null,
+            addons: item.addons.length > 0 ? JSON.stringify(item.addons) : null,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            total_price: item.totalPrice
+          }))
+        };
+
+        try {
+          const submitButton = e.target.querySelector('button[type="submit"]');
+          submitButton.disabled = true;
+          submitButton.textContent = 'Enviando pedido...';
+
+          const res = await fetch('/api/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(orderData)
+          });
+
+          const result = await res.json();
+
+          if (!res.ok) {
+            throw new Error(result.details || 'Failed to create order');
+          }
+
+          localStorage.removeItem('imperio_cart');
+          
+          window.location.href = `/pedido/${result.orderId}`;
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Erro ao finalizar pedido: ' + error.message);
+          const submitButton = e.target.querySelector('button[type="submit"]');
+          submitButton.disabled = false;
+          submitButton.textContent = 'Confirmar Pedido';
+        }
+      });
+    }
+
+    renderSummary();
+  });
+</script>
+
+<style>
+  .checkout-page {
+    padding: 4rem 0;
+    min-height: 100vh;
+  }
+
+  .checkout-page h1 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+
+  .order-type-info {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .badge-internal {
+    display: inline-block;
+    background: #E3F2FD;
+    color: #1976D2;
+    padding: 0.75rem 1.5rem;
+    border-radius: 2rem;
+    font-weight: 700;
+    font-size: 1.1rem;
+  }
+
+  .checkout-layout {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 3rem;
+  }
+
+  .form-section {
+    background: var(--color-white);
+    padding: 2rem;
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    margin-bottom: 2rem;
+  }
+
+  .form-section h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    color: var(--color-black);
+  }
+
+  .form-group {
+    margin-bottom: 1.5rem;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--color-black);
+  }
+
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    border: 2px solid var(--color-gray-light);
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    transition: var(--transition);
+  }
+
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: var(--color-gold);
+  }
+
+  .radio-group {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .radio-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    border: 2px solid var(--color-gray-light);
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: var(--transition);
+  }
+
+  .radio-label:has(input:checked) {
+    border-color: var(--color-gold);
+    background: var(--color-gold-light);
+  }
+
+  .submit-button {
+    width: 100%;
+    font-size: 1.1rem;
+    padding: 1.25rem 2rem;
+  }
+
+  .submit-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .checkout-summary {
+    position: sticky;
+    top: 2rem;
+    background: var(--color-white);
+    padding: 2rem;
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    height: fit-content;
+  }
+
+  .checkout-summary h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .summary-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--color-gray-light);
+  }
+
+  .summary-price {
+    font-weight: 600;
+    color: var(--color-gold);
+  }
+
+  .summary-totals {
+    margin-top: 1.5rem;
+  }
+
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 0;
+  }
+
+  .summary-total {
+    border-top: 2px solid var(--color-gray-light);
+    margin-top: 0.5rem;
+    padding-top: 1rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+  }
+
+  .summary-total span:last-child {
+    color: var(--color-gold);
+  }
+
+  .empty-cart {
+    text-align: center;
+    padding: 2rem;
+    color: var(--color-gray);
+  }
+
+  @media (max-width: 968px) {
+    .checkout-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .checkout-summary {
+      position: static;
+    }
+
+    .radio-group {
+      flex-direction: column;
+    }
+  }
+</style>

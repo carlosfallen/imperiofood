@@ -1,0 +1,22 @@
+{
+  "name": "imperio-pizzas",
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "astro dev --host",
+    "build": "astro build",
+    "preview": "astro preview",
+    "deploy": "astro build && wrangler pages deploy ./dist"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^11.1.0",
+    "@astrojs/solid-js": "^4.4.2",
+    "astro": "^4.16.17",
+    "solid-js": "^1.9.3",
+    "nanoid": "^5.0.9"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "wrangler": "^3.94.0"
+  }
+}

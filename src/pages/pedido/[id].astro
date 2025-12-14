@@ -1,0 +1,397 @@
+---
+// FILE: src/pages/pedido/[id].astro
+import Layout from '../../layouts/Layout.astro';
+
+const { id } = Astro.params;
+const { DB } = Astro.locals.runtime.env;
+
+const order = await DB.prepare(`
+  SELECT * FROM orders WHERE id = ?
+`).bind(id).first();
+
+if (!order) {
+  return Astro.redirect('/');
+}
+
+const { results: items } = await DB.prepare(`
+  SELECT * FROM order_items WHERE order_id = ?
+`).bind(id).all();
+---
+
+<Layout title={`Pedido #${id.substring(0, 8)} - Império Pizzas`}>
+  <div class="tracking-page">
+    <div class="container">
+      <div class="tracking-header">
+        <h1>🍕 Acompanhe seu Pedido</h1>
+        <p class="order-id">Pedido #{id.substring(0, 8).toUpperCase()}</p>
+      </div>
+
+      <div class="tracking-content">
+        <div class="status-timeline">
+          <div class="timeline-item" data-status="pending" class:list={{ active: order.status === 'pending', completed: ['preparing', 'ready', 'delivered', 'customer_left'].includes(order.status) }}>
+            <div class="timeline-icon">⏳</div>
+            <div class="timeline-info">
+              <h3>Pedido Recebido</h3>
+              <p>Seu pedido foi confirmado</p>
+            </div>
+          </div>
+
+          <div class="timeline-item" data-status="preparing" class:list={{ active: order.status === 'preparing', completed: ['ready', 'delivered', 'customer_left'].includes(order.status) }}>
+            <div class="timeline-icon">👨‍🍳</div>
+            <div class="timeline-info">
+              <h3>Em Preparo</h3>
+              <p>Estamos preparando seu pedido</p>
+            </div>
+          </div>
+
+          <div class="timeline-item" data-status="ready" class:list={{ active: order.status === 'ready', completed: ['delivered', 'customer_left'].includes(order.status) }}>
+            <div class="timeline-icon">✅</div>
+            <div class="timeline-info">
+              <h3>Pronto</h3>
+              <p>{order.order_type === 'internal' ? 'Seu pedido está pronto!' : order.order_type === 'delivery' ? 'Saiu para entrega' : 'Pronto para retirada'}</p>
+            </div>
+          </div>
+
+          <div class="timeline-item" data-status="delivered" class:list={{ active: order.status === 'delivered', completed: order.status === 'customer_left' }}>
+            <div class="timeline-icon">✔️</div>
+            <div class="timeline-info">
+              <h3>Entregue</h3>
+              <p>Pedido entregue com sucesso</p>
+            </div>
+          </div>
+
+          {order.order_type === 'internal' && (
+            <div class="timeline-item" data-status="customer_left" class:list={{ active: order.status === 'customer_left' }}>
+              <div class="timeline-icon">👋</div>
+              <div class="timeline-info">
+                <h3>Finalizado</h3>
+                <p>Obrigado pela visita!</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div class="order-details-card">
+          <h2>Detalhes do Pedido</h2>
+
+          {order.order_type === 'internal' && order.table_number && (
+            <div class="detail-section">
+              <p class="detail-label">Local</p>
+              <p class="detail-value">🏠 Mesa {order.table_number}</p>
+            </div>
+          )}
+
+          {order.order_type === 'delivery' && (
+            <div class="detail-section">
+              <p class="detail-label">Tipo de Entrega</p>
+              <p class="detail-value">🚚 Delivery</p>
+            </div>
+          )}
+
+          {order.order_type === 'pickup' && (
+            <div class="detail-section">
+              <p class="detail-label">Tipo de Entrega</p>
+              <p class="detail-value">📦 Retirada no Balcão</p>
+            </div>
+          )}
+
+          {order.customer_name && (
+            <div class="detail-section">
+              <p class="detail-label">Cliente</p>
+              <p class="detail-value">{order.customer_name}</p>
+            </div>
+          )}
+
+          {order.customer_address && (
+            <div class="detail-section">
+              <p class="detail-label">Endereço de Entrega</p>
+              <p class="detail-value">{order.customer_address}</p>
+            </div>
+          )}
+
+          <div class="items-list">
+            <h3>Itens do Pedido</h3>
+            {items.map((item: any) => {
+              let addons = [];
+              try {
+                if (item.addons) addons = JSON.parse(item.addons);
+              } catch (e) {}
+
+              return (
+                <div class="order-item">
+                  <div class="item-quantity">{item.quantity}x</div>
+                  <div class="item-details">
+                    <strong>{item.product_name}</strong>
+                    {item.size_name && <span class="item-meta">Tamanho: {item.size_name}</span>}
+                    {item.flavor_name && <span class="item-meta">Sabor: {item.flavor_name}</span>}
+                    {addons.length > 0 && (
+                      <span class="item-meta">Adicionais: {addons.map((a: any) => a.name).join(', ')}</span>
+                    )}
+                  </div>
+                  <div class="item-price">R$ {item.total_price.toFixed(2)}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div class="order-totals">
+            <div class="total-row">
+              <span>Subtotal</span>
+              <span>R$ {order.subtotal.toFixed(2)}</span>
+            </div>
+            {order.delivery_fee > 0 && (
+              <div class="total-row">
+                <span>Taxa de Entrega</span>
+                <span>R$ {order.delivery_fee.toFixed(2)}</span>
+              </div>
+            )}
+            <div class="total-row total-grand">
+              <span>Total</span>
+              <span>R$ {order.total.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <button class="btn btn-secondary refresh-btn" onclick="location.reload()">
+            🔄 Atualizar Status
+          </button>
+
+          <a href="/" class="btn btn-primary back-btn">
+            🏠 Voltar ao Início
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  setInterval(() => {
+    location.reload();
+  }, 30000);
+</script>
+
+<style>
+  .tracking-page {
+    min-height: 100vh;
+    background: linear-gradient(135deg, var(--color-white) 0%, var(--color-gold-light) 100%);
+    padding: 4rem 0;
+  }
+
+  .tracking-header {
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+
+  .tracking-header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--color-black);
+  }
+
+  .order-id {
+    font-size: 1.25rem;
+    color: var(--color-gray);
+    font-weight: 600;
+  }
+
+  .tracking-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .status-timeline {
+    background: var(--color-white);
+    padding: 2rem;
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  }
+
+  .timeline-item {
+    display: flex;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    border-left: 4px solid var(--color-gray-light);
+    margin-left: 2rem;
+    position: relative;
+    opacity: 0.5;
+    transition: all 0.3s ease;
+  }
+
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -2rem;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--color-gold);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .timeline-item.completed::before,
+  .timeline-item.active::before {
+    opacity: 1;
+  }
+
+  .timeline-item.completed,
+  .timeline-item.active {
+    opacity: 1;
+    border-left-color: var(--color-gold);
+  }
+
+  .timeline-item.active {
+    background: var(--color-gold-light);
+    border-radius: 0.5rem;
+  }
+
+  .timeline-icon {
+    font-size: 2.5rem;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-gray-light);
+    border-radius: 50%;
+  }
+
+  .timeline-item.active .timeline-icon {
+    background: var(--color-gold);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+
+  .timeline-info h3 {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+    color: var(--color-black);
+  }
+
+  .timeline-info p {
+    color: var(--color-gray);
+    font-size: 0.95rem;
+  }
+
+  .order-details-card {
+    background: var(--color-white);
+    padding: 2rem;
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    height: fit-content;
+  }
+
+  .order-details-card h2 {
+    font-size: 1.75rem;
+    margin-bottom: 2rem;
+    color: var(--color-black);
+  }
+
+  .detail-section {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--color-gray-light);
+  }
+
+  .detail-label {
+    font-size: 0.9rem;
+    color: var(--color-gray);
+    margin-bottom: 0.25rem;
+  }
+
+  .detail-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--color-black);
+  }
+
+  .items-list {
+    margin: 2rem 0;
+  }
+
+  .items-list h3 {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+    color: var(--color-black);
+  }
+
+  .order-item {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--color-gray-light);
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .item-quantity {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-gold);
+    min-width: 40px;
+  }
+
+  .item-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .item-meta {
+    font-size: 0.9rem;
+    color: var(--color-gray);
+  }
+
+  .item-price {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-gold);
+  }
+
+  .order-totals {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: var(--color-gray-light);
+    border-radius: 0.5rem;
+  }
+
+  .total-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    font-size: 1.1rem;
+  }
+
+  .total-grand {
+    border-top: 2px solid var(--color-gold);
+    margin-top: 1rem;
+    padding-top: 1rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-gold);
+  }
+
+  .refresh-btn,
+  .back-btn {
+    width: 100%;
+    margin-top: 1rem;
+  }
+
+  @media (max-width: 968px) {
+    .tracking-content {
+      grid-template-columns: 1fr;
+    }
+
+    .timeline-item {
+      margin-left: 1rem;
+    }
+  }
+</style>

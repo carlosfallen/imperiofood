@@ -1,0 +1,1005 @@
+---
+// FILE: src/pages/admin/index.astro
+import Layout from '../../layouts/Layout.astro';
+
+const { DB } = Astro.locals.runtime.env;
+
+const { results: allOrders } = await DB.prepare(`
+  SELECT o.*, t.table_number, t.id as table_id_ref
+  FROM orders o
+  LEFT JOIN tables t ON o.table_id = t.id
+  ORDER BY 
+    CASE o.status
+      WHEN 'pending' THEN 1
+      WHEN 'preparing' THEN 2
+      WHEN 'ready' THEN 3
+      WHEN 'delivered' THEN 4
+      WHEN 'customer_left' THEN 5
+      ELSE 6
+    END,
+    o.created_at DESC
+`).all();
+
+const ordersWithItems = await Promise.all(
+  allOrders.map(async (order: any) => {
+    const { results: items } = await DB.prepare(`
+      SELECT * FROM order_items WHERE order_id = ?
+    `).bind(order.id).all();
+    return { ...order, items };
+  })
+);
+
+const { results: tables } = await DB.prepare(`
+  SELECT * FROM tables WHERE active = 1 ORDER BY table_number
+`).all();
+
+const pendingOrders = ordersWithItems.filter((o: any) => o.status === 'pending');
+const preparingOrders = ordersWithItems.filter((o: any) => o.status === 'preparing');
+const readyOrders = ordersWithItems.filter((o: any) => o.status === 'ready');
+
+const internalOrders = ordersWithItems.filter((o: any) => o.order_type === 'internal');
+const deliveryOrders = ordersWithItems.filter((o: any) => o.order_type === 'delivery');
+const pickupOrders = ordersWithItems.filter((o: any) => o.order_type === 'pickup');
+
+const today = new Date();
+today.setHours(0, 0, 0, 0);
+const todayTimestamp = Math.floor(today.getTime() / 1000);
+
+const todayOrders = ordersWithItems.filter((o: any) => o.created_at >= todayTimestamp);
+const todayRevenue = todayOrders.reduce((sum: number, o: any) => sum + (o.total || 0), 0);
+---
+
+<Layout title="Admin - Gestão de Pedidos | Império Pizzas">
+  <div class="admin-page">
+    <header class="admin-header">
+      <div class="container">
+        <div class="header-content">
+          <h1>🍕 Painel Administrativo</h1>
+          <div class="header-actions">
+            <button class="btn btn-secondary" onclick="location.reload()">
+              🔄 Atualizar
+            </button>
+            <a href="/" class="btn btn-primary">🏠 Site</a>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="admin-content">
+      <div class="container">
+        <div class="stats-grid">
+          <div class="stat-card stat-pending">
+            <div class="stat-icon">⏳</div>
+            <div class="stat-info">
+              <h3>Pendentes</h3>
+              <p class="stat-value">{pendingOrders.length}</p>
+            </div>
+          </div>
+          
+          <div class="stat-card stat-preparing">
+            <div class="stat-icon">👨‍🍳</div>
+            <div class="stat-info">
+              <h3>Em Preparo</h3>
+              <p class="stat-value">{preparingOrders.length}</p>
+            </div>
+          </div>
+          
+          <div class="stat-card stat-ready">
+            <div class="stat-icon">✅</div>
+            <div class="stat-info">
+              <h3>Prontos</h3>
+              <p class="stat-value">{readyOrders.length}</p>
+            </div>
+          </div>
+          
+          <div class="stat-card stat-revenue">
+            <div class="stat-icon">💰</div>
+            <div class="stat-info">
+              <h3>Faturamento Hoje</h3>
+              <p class="stat-value">R$ {todayRevenue.toFixed(2)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="filters-section">
+          <button class="filter-btn active" data-filter="all">
+            Todos ({ordersWithItems.length})
+          </button>
+          <button class="filter-btn" data-filter="internal">
+            🏠 Mesas ({internalOrders.length})
+          </button>
+          <button class="filter-btn" data-filter="delivery">
+            🚚 Delivery ({deliveryOrders.length})
+          </button>
+          <button class="filter-btn" data-filter="pickup">
+            📦 Retirada ({pickupOrders.length})
+          </button>
+          
+          <div class="filter-divider"></div>
+          
+          <button class="filter-btn" data-status="pending">
+            ⏳ Pendentes
+          </button>
+          <button class="filter-btn" data-status="preparing">
+            👨‍🍳 Preparando
+          </button>
+          <button class="filter-btn" data-status="ready">
+            ✅ Prontos
+          </button>
+          <button class="filter-btn" data-status="delivered">
+            ✔️ Entregues
+          </button>
+        </div>
+
+        <div class="tables-section">
+          <h2>📋 Mesas do Restaurante</h2>
+          <div class="tables-grid">
+            {tables.map((table: any) => {
+              const tableOrders = ordersWithItems.filter((o: any) => 
+                o.table_id === table.id && 
+                !['delivered', 'cancelled', 'customer_left'].includes(o.status)
+              );
+              const hasOrders = tableOrders.length > 0;
+              
+              return (
+                <div class={`table-card ${hasOrders ? 'table-occupied' : 'table-free'}`}>
+                  <div class="table-number">Mesa {table.table_number}</div>
+                  {hasOrders ? (
+                    <div class="table-info">
+                      <p class="table-orders">{tableOrders.length} pedido(s)</p>
+                      <div class="table-status-list">
+                        {tableOrders.map((order: any) => (
+                          <span class={`mini-status status-${order.status}`} title={order.status}>
+                            {order.status === 'pending' ? '⏳' : 
+                             order.status === 'preparing' ? '👨‍🍳' : 
+                             order.status === 'ready' ? '✅' : '✔️'}
+                          </span>
+                        ))}
+                      </div>
+                      <p class="table-total">
+                        R$ {tableOrders.reduce((sum: number, o: any) => sum + o.total, 0).toFixed(2)}
+                      </p>
+                    </div>
+                  ) : (
+                    <div class="table-info">
+                      <p class="table-status">Livre</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div class="orders-section">
+          <h2>📦 Gestão de Pedidos</h2>
+          
+          <div class="orders-list">
+            {ordersWithItems.length === 0 ? (
+              <div class="empty-state">
+                <p>Nenhum pedido encontrado</p>
+              </div>
+            ) : (
+              ordersWithItems.map((order: any) => (
+                <div 
+                  class="order-card" 
+                  data-order-id={order.id}
+                  data-order-type={order.order_type}
+                  data-order-status={order.status}
+                >
+                  <div class="order-header">
+                    <div class="order-header-left">
+                      <h3>Pedido #{order.id.substring(0, 8).toUpperCase()}</h3>
+                      <p class="order-time">
+                        {new Date(order.created_at * 1000).toLocaleString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                        <span class="order-elapsed">
+                          ({Math.floor((Date.now() / 1000 - order.created_at) / 60)} min atrás)
+                        </span>
+                      </p>
+                    </div>
+                    <div class="order-header-right">
+                      <span class={`status-badge status-${order.status}`}>
+                        {order.status === 'pending' ? '⏳ Pendente' : 
+                         order.status === 'preparing' ? '👨‍🍳 Preparando' :
+                         order.status === 'ready' ? '✅ Pronto' :
+                         order.status === 'delivered' ? '✔️ Entregue' : 
+                         order.status === 'customer_left' ? '👋 Cliente Saiu' : '❌ Cancelado'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="order-type-badge">
+                    {order.order_type === 'internal' && order.table_number && (
+                      <span class="type-internal">
+                        🏠 Mesa {order.table_number}
+                      </span>
+                    )}
+                    {order.order_type === 'delivery' && (
+                      <span class="type-delivery">
+                        🚚 Delivery
+                      </span>
+                    )}
+                    {order.order_type === 'pickup' && (
+                      <span class="type-pickup">
+                        📦 Retirada
+                      </span>
+                    )}
+                  </div>
+
+                  <div class="order-info">
+                    {order.customer_name && (
+                      <p><strong>👤 Cliente:</strong> {order.customer_name}</p>
+                    )}
+                    {order.customer_phone && (
+                      <p><strong>📞 Telefone:</strong> {order.customer_phone}</p>
+                    )}
+                    {order.customer_address && (
+                      <p><strong>📍 Endereço:</strong> {order.customer_address}</p>
+                    )}
+                    {order.payment_method && (
+                      <p><strong>💳 Pagamento:</strong> {order.payment_method}</p>
+                    )}
+                    {order.notes && (
+                      <p class="order-notes"><strong>📝 Obs:</strong> {order.notes}</p>
+                    )}
+                  </div>
+
+                  <div class="order-items">
+                    <h4>Itens do Pedido:</h4>
+                    <ul>
+                      {order.items.map((item: any) => {
+                        let addons = [];
+                        try {
+                          if (item.addons) {
+                            addons = JSON.parse(item.addons);
+                          }
+                        } catch (e) {
+                          console.error('Error parsing addons:', e);
+                        }
+                        
+                        return (
+                          <li>
+                            <div class="item-info">
+                              <strong class="item-quantity">{item.quantity}x</strong>
+                              <div class="item-details">
+                                <strong>{item.product_name}</strong>
+                                {item.size_name && <span class="item-detail">Tamanho: {item.size_name}</span>}
+                                {item.flavor_name && <span class="item-detail">Sabor: {item.flavor_name}</span>}
+                                {addons.length > 0 && (
+                                  <span class="item-detail">
+                                    Adicionais: {addons.map((a: any) => a.name).join(', ')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span class="item-price">R$ {item.total_price.toFixed(2)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+
+                  <div class="order-totals">
+                    <div class="order-total-row">
+                      <span>Subtotal:</span>
+                      <span>R$ {order.subtotal.toFixed(2)}</span>
+                    </div>
+                    {order.delivery_fee > 0 && (
+                      <div class="order-total-row">
+                        <span>Taxa de Entrega:</span>
+                        <span>R$ {order.delivery_fee.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div class="order-total-row order-grand-total">
+                      <span>TOTAL:</span>
+                      <span>R$ {order.total.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div class="order-actions">
+                    {order.status === 'pending' && (
+                      <>
+                        <button class="btn-action btn-preparing" data-action="preparing">
+                          👨‍🍳 Iniciar Preparo
+                        </button>
+                        <button class="btn-action btn-cancelled" data-action="cancelled">
+                          ❌ Cancelar
+                        </button>
+                      </>
+                    )}
+                    
+                    {order.status === 'preparing' && (
+                      <>
+                        <button class="btn-action btn-ready" data-action="ready">
+                          ✅ Marcar como Pronto
+                        </button>
+                        <button class="btn-action btn-cancelled" data-action="cancelled">
+                          ❌ Cancelar
+                        </button>
+                      </>
+                    )}
+                    
+                    {order.status === 'ready' && (
+                      <button class="btn-action btn-delivered" data-action="delivered">
+                        ✔️ Marcar como Entregue
+                      </button>
+                    )}
+                    
+                    {order.status === 'delivered' && order.order_type === 'internal' && (
+                      <button class="btn-action btn-customer-left" data-action="customer_left">
+                        👋 Cliente Saiu (Liberar Mesa)
+                      </button>
+                    )}
+                    
+                    {order.status === 'delivered' && order.order_type !== 'internal' && (
+                      <div class="completed-badge">✔️ Pedido Finalizado</div>
+                    )}
+                    
+                    {order.status === 'customer_left' && (
+                      <div class="completed-badge">👋 Finalizado - Mesa Liberada</div>
+                    )}
+                    
+                    {order.status === 'cancelled' && (
+                      <div class="cancelled-badge">❌ Pedido Cancelado</div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</Layout>
+
+<script>
+  let currentFilter = 'all';
+  let currentStatus = '';
+
+  function filterOrders() {
+    const orders = document.querySelectorAll('.order-card');
+    
+    orders.forEach(order => {
+      const orderType = order.getAttribute('data-order-type');
+      const orderStatus = order.getAttribute('data-order-status');
+      
+      let showByType = currentFilter === 'all' || orderType === currentFilter;
+      let showByStatus = !currentStatus || orderStatus === currentStatus;
+      
+      if (showByType && showByStatus) {
+        (order as HTMLElement).style.display = 'block';
+      } else {
+        (order as HTMLElement).style.display = 'none';
+      }
+    });
+  }
+
+  document.querySelectorAll('[data-filter]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      currentFilter = target.getAttribute('data-filter') || 'all';
+      
+      document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+      target.classList.add('active');
+      
+      filterOrders();
+    });
+  });
+
+  document.querySelectorAll('[data-status]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const status = target.getAttribute('data-status') || '';
+      
+      if (currentStatus === status) {
+        currentStatus = '';
+        target.classList.remove('active');
+      } else {
+        currentStatus = status;
+        document.querySelectorAll('[data-status]').forEach(b => b.classList.remove('active'));
+        target.classList.add('active');
+      }
+      
+      filterOrders();
+    });
+  });
+
+  document.querySelectorAll('.btn-action').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const button = e.target as HTMLButtonElement;
+      const action = button.getAttribute('data-action');
+      const orderCard = button.closest('.order-card');
+      const orderId = orderCard?.getAttribute('data-order-id');
+
+      if (!orderId || !action) return;
+
+      const confirmMessages: Record<string, string> = {
+        'preparing': 'Confirma INICIAR O PREPARO deste pedido?',
+        'ready': 'Confirma que o pedido está PRONTO?',
+        'delivered': 'Confirma que o pedido foi ENTREGUE?',
+        'customer_left': 'Confirma que o CLIENTE SAIU e a mesa está liberada?',
+        'cancelled': 'Confirma o CANCELAMENTO deste pedido?'
+      };
+
+      if (!confirm(confirmMessages[action] || 'Confirma esta ação?')) return;
+
+      button.disabled = true;
+      button.style.opacity = '0.5';
+
+      try {
+        const res = await fetch('/api/orders/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId, status: action })
+        });
+
+        if (res.ok) {
+          location.reload();
+        } else {
+          alert('Erro ao atualizar status');
+          button.disabled = false;
+          button.style.opacity = '1';
+        }
+      } catch (error) {
+        alert('Erro ao atualizar status');
+        button.disabled = false;
+        button.style.opacity = '1';
+      }
+    });
+  });
+
+  setInterval(() => {
+    location.reload();
+  }, 60000);
+</script>
+
+<style>
+  .admin-page {
+    min-height: 100vh;
+    background: #F8F9FA;
+  }
+
+  .admin-header {
+    background: var(--color-white);
+    padding: 1.5rem 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    margin-bottom: 2rem;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+
+  .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .admin-header h1 {
+    font-size: 1.75rem;
+    color: var(--color-black);
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: var(--color-white);
+    padding: 1.5rem;
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .stat-icon {
+    font-size: 2.5rem;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.75rem;
+    background: var(--color-gray-light);
+  }
+
+  .stat-pending .stat-icon {
+    background: #FFF3CD;
+  }
+
+  .stat-preparing .stat-icon {
+    background: #D1ECF1;
+  }
+
+  .stat-ready .stat-icon {
+    background: #D4EDDA;
+  }
+
+  .stat-revenue .stat-icon {
+    background: var(--color-gold-light);
+  }
+
+  .stat-info h3 {
+    font-size: 0.9rem;
+    color: var(--color-gray);
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--color-black);
+  }
+
+  .filters-section {
+    background: var(--color-white);
+    padding: 1rem;
+    border-radius: 1rem;
+    margin-bottom: 2rem;
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  }
+
+  .filter-btn {
+    padding: 0.625rem 1.25rem;
+    border-radius: 2rem;
+    background: var(--color-gray-light);
+    color: var(--color-gray);
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: var(--transition);
+    border: 2px solid transparent;
+  }
+
+  .filter-btn:hover {
+    background: var(--color-gold-light);
+    color: var(--color-gold-dark);
+  }
+
+  .filter-btn.active {
+    background: var(--color-gold);
+    color: var(--color-white);
+    border-color: var(--color-gold-dark);
+  }
+
+  .filter-divider {
+    width: 1px;
+    background: var(--color-gray-light);
+    margin: 0 0.5rem;
+  }
+
+  .tables-section {
+    margin-bottom: 3rem;
+  }
+
+  .tables-section h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    color: var(--color-black);
+  }
+
+  .tables-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 1rem;
+  }
+
+  .table-card {
+    background: var(--color-white);
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+    text-align: center;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    border: 3px solid transparent;
+    transition: var(--transition);
+  }
+
+  .table-free {
+    border-color: #28A745;
+  }
+
+  .table-occupied {
+    border-color: #FFC107;
+    background: #FFFBF0;
+  }
+
+  .table-number {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: var(--color-black);
+  }
+
+  .table-orders {
+    font-size: 0.9rem;
+    color: var(--color-gray);
+    margin-bottom: 0.5rem;
+  }
+
+  .table-status-list {
+    display: flex;
+    gap: 0.25rem;
+    justify-content: center;
+    margin: 0.5rem 0;
+    flex-wrap: wrap;
+  }
+
+  .mini-status {
+    font-size: 1.2rem;
+  }
+
+  .table-total {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-gold);
+    margin-top: 0.5rem;
+  }
+
+  .table-status {
+    color: #28A745;
+    font-weight: 600;
+  }
+
+  .orders-section h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    color: var(--color-black);
+  }
+
+  .orders-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    background: var(--color-white);
+    border-radius: 1rem;
+    color: var(--color-gray);
+  }
+
+  .order-card {
+    background: var(--color-white);
+    padding: 1.5rem;
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border-left: 5px solid var(--color-gold);
+  }
+
+  .order-card[data-order-status="pending"] {
+    border-left-color: #FFC107;
+  }
+
+  .order-card[data-order-status="preparing"] {
+    border-left-color: #17A2B8;
+  }
+
+  .order-card[data-order-status="ready"] {
+    border-left-color: #28A745;
+  }
+
+  .order-card[data-order-status="delivered"] {
+    border-left-color: #6C757D;
+  }
+
+  .order-card[data-order-status="customer_left"],
+  .order-card[data-order-status="cancelled"] {
+    opacity: 0.6;
+    border-left-color: #6C757D;
+  }
+
+  .order-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--color-gray-light);
+  }
+
+  .order-header h3 {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+    color: var(--color-black);
+  }
+
+  .order-time {
+    color: var(--color-gray);
+    font-size: 0.85rem;
+  }
+
+  .order-elapsed {
+    color: var(--color-gold);
+    font-weight: 600;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border-radius: 2rem;
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+
+  .status-pending {
+    background: #FFF3CD;
+    color: #856404;
+  }
+
+  .status-preparing {
+    background: #D1ECF1;
+    color: #0C5460;
+  }
+
+  .status-ready {
+    background: #D4EDDA;
+    color: #155724;
+  }
+
+  .status-delivered,
+  .status-customer_left {
+    background: #D6D8DB;
+    color: #383D41;
+  }
+
+  .status-cancelled {
+    background: #F8D7DA;
+    color: #721C24;
+  }
+
+  .order-type-badge {
+    margin-bottom: 1rem;
+  }
+
+  .order-type-badge span {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+
+  .type-internal {
+    background: #E3F2FD;
+    color: #1976D2;
+  }
+
+  .type-delivery {
+    background: #FFF3E0;
+    color: #F57C00;
+  }
+
+  .type-pickup {
+    background: #F3E5F5;
+    color: #7B1FA2;
+  }
+
+  .order-info {
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .order-info p {
+    font-size: 0.95rem;
+  }
+
+  .order-notes {
+    background: var(--color-gold-light);
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    border-left: 3px solid var(--color-gold);
+  }
+
+  .order-items {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: #F8F9FA;
+    border-radius: 0.5rem;
+  }
+
+  .order-items h4 {
+    margin-bottom: 0.75rem;
+    color: var(--color-black);
+    font-size: 1rem;
+  }
+
+  .order-items ul {
+    list-style: none;
+  }
+
+  .order-items li {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .order-items li:last-child {
+    border-bottom: none;
+  }
+
+  .item-info {
+    display: flex;
+    gap: 0.75rem;
+    flex: 1;
+  }
+
+  .item-quantity {
+    font-size: 1.1rem;
+    color: var(--color-gold);
+    min-width: 30px;
+  }
+
+  .item-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .item-detail {
+    font-size: 0.85rem;
+    color: var(--color-gray);
+  }
+
+  .item-price {
+    color: var(--color-gold);
+    font-weight: 700;
+    white-space: nowrap;
+    margin-left: 1rem;
+  }
+
+  .order-totals {
+    padding: 1rem 0;
+    border-top: 2px solid var(--color-gray-light);
+  }
+
+  .order-total-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.4rem 0;
+    font-size: 1rem;
+  }
+
+  .order-grand-total {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-gold);
+    padding-top: 0.75rem;
+    border-top: 2px solid var(--color-gray-light);
+    margin-top: 0.5rem;
+  }
+
+  .order-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .btn-action {
+    flex: 1;
+    min-width: 140px;
+    padding: 0.875rem 1.5rem;
+    border-radius: 0.5rem;
+    font-weight: 700;
+    transition: var(--transition);
+    color: white;
+    font-size: 0.95rem;
+  }
+
+  .btn-preparing {
+    background: #17A2B8;
+  }
+
+  .btn-preparing:hover:not(:disabled) {
+    background: #138496;
+    transform: translateY(-2px);
+  }
+
+  .btn-ready {
+    background: #28A745;
+  }
+
+  .btn-ready:hover:not(:disabled) {
+    background: #218838;
+    transform: translateY(-2px);
+  }
+
+  .btn-delivered {
+    background: #6C757D;
+  }
+
+  .btn-delivered:hover:not(:disabled) {
+    background: #5A6268;
+    transform: translateY(-2px);
+  }
+
+  .btn-customer-left {
+    background: #17A2B8;
+  }
+
+  .btn-customer-left:hover:not(:disabled) {
+    background: #138496;
+    transform: translateY(-2px);
+  }
+
+  .btn-cancelled {
+    background: #DC3545;
+  }
+
+  .btn-cancelled:hover:not(:disabled) {
+    background: #C82333;
+    transform: translateY(-2px);
+  }
+
+  .completed-badge,
+  .cancelled-badge {
+    text-align: center;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    font-weight: 700;
+    width: 100%;
+  }
+
+  .completed-badge {
+    background: #D4EDDA;
+    color: #155724;
+  }
+
+  .cancelled-badge {
+    background: #F8D7DA;
+    color: #721C24;
+  }
+
+  @media (max-width: 768px) {
+    .header-content {
+      flex-direction: column;
+      gap: 1rem;
+      align-items: stretch;
+    }
+
+    .header-actions {
+      justify-content: stretch;
+    }
+
+    .header-actions > * {
+      flex: 1;
+    }
+
+    .tables-grid {
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+
+    .order-actions {
+      flex-direction: column;
+    }
+
+    .btn-action {
+      width: 100%;
+    }
+  }
+</style>

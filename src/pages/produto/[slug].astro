@@ -1,0 +1,513 @@
+---
+// FILE: src/pages/produto/[slug].astro
+import Layout from '../../layouts/Layout.astro';
+import Video360Player from '../../components/Video360Player';
+import Cart from '../../components/Cart';
+
+const { slug } = Astro.params;
+const { DB } = Astro.locals.runtime.env;
+
+const product = await DB.prepare(`
+  SELECT * FROM products WHERE slug = ? AND active = 1
+`).bind(slug).first();
+
+if (!product) {
+  return Astro.redirect('/');
+}
+
+const { results: sizes } = await DB.prepare(`
+  SELECT * FROM product_sizes WHERE product_id = ? ORDER BY position
+`).bind(product.id).all();
+
+const { results: flavors } = await DB.prepare(`
+  SELECT * FROM product_flavors WHERE product_id = ? ORDER BY position
+`).bind(product.id).all();
+
+const { results: addons } = await DB.prepare(`
+  SELECT * FROM product_addons WHERE product_id = ? ORDER BY position
+`).bind(product.id).all();
+---
+
+<Layout title={`${product.name} - Império Pizzas`}>
+  <main class="product-page">
+    <div class="container">
+      <a href="/" class="back-link">← Voltar ao Cardápio</a>
+      
+      <div class="product-layout">
+        <div class="product-media">
+          {product.video_360_url ? (
+            <Video360Player 
+              videoUrl={product.video_360_url}
+              posterUrl={product.image_url}
+              client:load
+            />
+          ) : product.image_url ? (
+            <img src={product.image_url} alt={product.name} class="product-image" />
+          ) : null}
+        </div>
+
+        <div class="product-info">
+          <h1 class="product-title">{product.name}</h1>
+          
+          {product.description && (
+            <p class="product-description">{product.description}</p>
+          )}
+
+          <div class="product-serves">
+            Serve {product.serves_people} {product.serves_people === 1 ? 'pessoa' : 'pessoas'}
+          </div>
+
+          <div class="product-options">
+            {sizes.length > 0 && (
+              <div class="option-group">
+                <label>Tamanho</label>
+                <div class="options-list" id="sizes">
+                  {sizes.map((size: any) => (
+                    <button 
+                      class="option-button" 
+                      data-size-id={size.id}
+                      data-size-name={size.name}
+                      data-size-price={size.price}
+                    >
+                      <span>{size.name}</span>
+                      <span>R$ {size.price.toFixed(2)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {flavors.length > 0 && (
+              <div class="option-group">
+                <label>Sabor</label>
+                <div class="options-list" id="flavors">
+                  {flavors.map((flavor: any) => (
+                    <button 
+                      class="option-button" 
+                      data-flavor-id={flavor.id}
+                      data-flavor-name={flavor.name}
+                      data-flavor-price={flavor.extra_price}
+                    >
+                      <span>{flavor.name}</span>
+                      {flavor.extra_price > 0 && (
+                        <span>+R$ {flavor.extra_price.toFixed(2)}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {addons.length > 0 && (
+              <div class="option-group">
+                <label>Adicionais</label>
+                <div class="options-list" id="addons">
+                  {addons.map((addon: any) => (
+                    <label class="addon-checkbox">
+                      <input 
+                        type="checkbox" 
+                        data-addon-id={addon.id}
+                        data-addon-name={addon.name}
+                        data-addon-price={addon.price}
+                      />
+                      <span>{addon.name}</span>
+                      <span>+R$ {addon.price.toFixed(2)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div class="quantity-control">
+              <label>Quantidade</label>
+              <div class="quantity-buttons">
+                <button id="decrease">-</button>
+                <span id="quantity">1</span>
+                <button id="increase">+</button>
+              </div>
+            </div>
+
+            <div class="product-price">
+              <span>Total</span>
+              <span id="totalPrice">R$ {product.base_price.toFixed(2)}</span>
+            </div>
+
+            <button class="btn btn-primary add-to-cart" id="addToCart">
+              Adicionar ao Carrinho
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <Cart client:load />
+</Layout>
+
+<script>
+  const product = {
+    id: document.querySelector('.product-title')?.getAttribute('data-product-id') || '',
+    name: document.querySelector('.product-title')?.textContent || '',
+    image: document.querySelector('.product-image')?.getAttribute('src') || '',
+    basePrice: parseFloat(document.getElementById('totalPrice')?.textContent?.replace('R$ ', '').replace(',', '.') || '0')
+  };
+
+  let quantity = 1;
+  let selectedSize = null;
+  let selectedFlavor = null;
+  let selectedAddons = [];
+
+  const firstSize = document.querySelector('#sizes .option-button');
+  if (firstSize) {
+    selectedSize = {
+      id: firstSize.getAttribute('data-size-id'),
+      name: firstSize.getAttribute('data-size-name'),
+      price: parseFloat(firstSize.getAttribute('data-size-price') || '0')
+    };
+    firstSize.classList.add('active');
+  }
+
+  const firstFlavor = document.querySelector('#flavors .option-button');
+  if (firstFlavor) {
+    selectedFlavor = {
+      id: firstFlavor.getAttribute('data-flavor-id'),
+      name: firstFlavor.getAttribute('data-flavor-name'),
+      extraPrice: parseFloat(firstFlavor.getAttribute('data-flavor-price') || '0')
+    };
+    firstFlavor.classList.add('active');
+  }
+
+  function calculatePrice() {
+    let price = product.basePrice;
+    
+    if (selectedSize) {
+      price = selectedSize.price;
+    }
+    
+    if (selectedFlavor && selectedFlavor.extraPrice) {
+      price += selectedFlavor.extraPrice;
+    }
+    
+    selectedAddons.forEach(addon => {
+      price += addon.price;
+    });
+
+    return price * quantity;
+  }
+
+  function updatePrice() {
+    const total = calculatePrice();
+    const priceElement = document.getElementById('totalPrice');
+    if (priceElement) {
+      priceElement.textContent = `R$ ${total.toFixed(2)}`;
+    }
+  }
+
+  document.getElementById('increase')?.addEventListener('click', () => {
+    quantity++;
+    const qtyElement = document.getElementById('quantity');
+    if (qtyElement) {
+      qtyElement.textContent = quantity.toString();
+    }
+    updatePrice();
+  });
+
+  document.getElementById('decrease')?.addEventListener('click', () => {
+    if (quantity > 1) {
+      quantity--;
+      const qtyElement = document.getElementById('quantity');
+      if (qtyElement) {
+        qtyElement.textContent = quantity.toString();
+      }
+      updatePrice();
+    }
+  });
+
+  document.querySelectorAll('#sizes .option-button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#sizes .option-button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      selectedSize = {
+        id: btn.getAttribute('data-size-id') || '',
+        name: btn.getAttribute('data-size-name') || '',
+        price: parseFloat(btn.getAttribute('data-size-price') || '0')
+      };
+      
+      updatePrice();
+    });
+  });
+
+  document.querySelectorAll('#flavors .option-button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#flavors .option-button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      selectedFlavor = {
+        id: btn.getAttribute('data-flavor-id') || '',
+        name: btn.getAttribute('data-flavor-name') || '',
+        extraPrice: parseFloat(btn.getAttribute('data-flavor-price') || '0')
+      };
+      
+      updatePrice();
+    });
+  });
+
+  document.querySelectorAll('#addons input[type="checkbox"]').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const target = e.target as HTMLInputElement;
+      const addon = {
+        id: target.getAttribute('data-addon-id') || '',
+        name: target.getAttribute('data-addon-name') || '',
+        price: parseFloat(target.getAttribute('data-addon-price') || '0')
+      };
+      
+      if (target.checked) {
+        selectedAddons.push(addon);
+      } else {
+        selectedAddons = selectedAddons.filter(a => a.id !== addon.id);
+      }
+      
+      updatePrice();
+    });
+  });
+
+  document.getElementById('addToCart')?.addEventListener('click', () => {
+    const unitPrice = calculatePrice() / quantity;
+    const totalPrice = calculatePrice();
+
+    const generateId = () => {
+      return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    };
+
+    const productData = {
+      id: document.querySelector('.product-page')?.getAttribute('data-product-id') || generateId(),
+      name: document.querySelector('.product-title')?.textContent || '',
+      image: (document.querySelector('.product-image') as HTMLImageElement)?.src || ''
+    };
+
+    const cartItem = {
+      id: generateId(),
+      productId: productData.id,
+      productName: productData.name,
+      productImage: productData.image,
+      size: selectedSize,
+      flavor: selectedFlavor,
+      addons: selectedAddons,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      totalPrice: totalPrice
+    };
+
+    const cartJson = localStorage.getItem('imperio_cart');
+    let cart = cartJson ? JSON.parse(cartJson) : { items: [], subtotal: 0, itemCount: 0 };
+    
+    cart.items.push(cartItem);
+    
+    const subtotal = cart.items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+    
+    cart = {
+      items: cart.items,
+      subtotal: subtotal,
+      itemCount: itemCount
+    };
+    
+    localStorage.setItem('imperio_cart', JSON.stringify(cart));
+    
+    window.dispatchEvent(new Event('cart-updated'));
+    window.dispatchEvent(new Event('storage'));
+    
+    alert('Produto adicionado ao carrinho!');
+  });
+
+  const productPage = document.querySelector('.product-page');
+  const productTitle = document.querySelector('.product-title');
+  if (productPage && productTitle) {
+    const urlParts = window.location.pathname.split('/');
+    const slug = urlParts[urlParts.length - 1];
+    productPage.setAttribute('data-product-id', slug);
+    productTitle.setAttribute('data-product-id', slug);
+  }
+</script>
+
+<style>
+  .product-page {
+    padding: 4rem 0;
+    min-height: 100vh;
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-gold);
+    font-weight: 600;
+    margin-bottom: 2rem;
+    transition: var(--transition);
+  }
+
+  .back-link:hover {
+    transform: translateX(-5px);
+  }
+
+  .product-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4rem;
+    align-items: start;
+  }
+
+  .product-image {
+    width: 100%;
+    border-radius: 1rem;
+  }
+
+  .product-title {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--color-black);
+  }
+
+  .product-description {
+    font-size: 1.1rem;
+    color: var(--color-gray);
+    line-height: 1.8;
+    margin-bottom: 1.5rem;
+  }
+
+  .product-serves {
+    display: inline-block;
+    background: var(--color-gold-light);
+    color: var(--color-gold-dark);
+    padding: 0.5rem 1rem;
+    border-radius: 2rem;
+    font-weight: 600;
+    margin-bottom: 2rem;
+  }
+
+  .product-options {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  .option-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--color-black);
+  }
+
+  .options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .option-button {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background: var(--color-white);
+    border: 2px solid var(--color-gray-light);
+    border-radius: 0.5rem;
+    transition: var(--transition);
+    text-align: left;
+    width: 100%;
+  }
+
+  .option-button:hover {
+    border-color: var(--color-gold);
+  }
+
+  .option-button.active {
+    border-color: var(--color-gold);
+    background: var(--color-gold-light);
+  }
+
+  .addon-checkbox {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background: var(--color-white);
+    border: 2px solid var(--color-gray-light);
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: var(--transition);
+  }
+
+  .addon-checkbox:hover {
+    border-color: var(--color-gold);
+  }
+
+  .addon-checkbox:has(input:checked) {
+    border-color: var(--color-gold);
+    background: var(--color-gold-light);
+  }
+
+  .quantity-control label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 1rem;
+  }
+
+  .quantity-buttons {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .quantity-buttons button {
+    width: 40px;
+    height: 40px;
+    background: var(--color-gold);
+    color: var(--color-white);
+    border-radius: 0.5rem;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+  }
+
+  .quantity-buttons button:hover {
+    background: var(--color-gold-dark);
+  }
+
+  .quantity-buttons span {
+    font-size: 1.5rem;
+    font-weight: 600;
+    min-width: 40px;
+    text-align: center;
+  }
+
+  .product-price {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 0;
+    border-top: 2px solid var(--color-gray-light);
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+
+  .product-price span:last-child {
+    color: var(--color-gold);
+  }
+
+  .add-to-cart {
+    width: 100%;
+    font-size: 1.1rem;
+    padding: 1.25rem 2rem;
+  }
+
+  @media (max-width: 968px) {
+    .product-layout {
+      grid-template-columns: 1fr;
+      gap: 2rem;
+    }
+  }
+</style>

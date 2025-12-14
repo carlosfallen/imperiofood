@@ -1,0 +1,234 @@
+---
+// FILE: src/pages/m[table].astro
+import Layout from '../layouts/Layout.astro';
+import Hero from '../components/Hero';
+import MenuList from '../components/MenuList';
+import Cart from '../components/Cart';
+
+const { table } = Astro.params;
+const { DB } = Astro.locals.runtime.env;
+
+let products = [];
+
+try {
+  const { results } = await DB.prepare(`
+    SELECT 
+      p.id, p.name, p.slug, p.serves_people, p.base_price, p.image_url,
+      c.name as category_name
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    WHERE p.active = 1
+    ORDER BY c.position, p.position
+  `).all();
+  products = results as any[];
+} catch (error) {
+  console.error('Database error:', error);
+}
+---
+
+<Layout title={`Império Pizzas - Mesa ${table}`}>
+  <Hero client:load />
+  <MenuList client:load initialProducts={products} />
+  <Cart client:load />
+</Layout>
+
+<style>
+  .menu-section {
+    padding: 6rem 0;
+    background: var(--color-white);
+  }
+
+  .section-title {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    text-align: center;
+    margin-bottom: 4rem;
+    color: var(--color-black);
+  }
+
+  .section-title::after {
+    content: '';
+    display: block;
+    width: 100px;
+    height: 4px;
+    background: var(--color-gold);
+    margin: 1.5rem auto 0;
+  }
+
+  .loading-container {
+    display: flex;
+    justify-content: center;
+    padding: 4rem 0;
+  }
+
+  .error-message {
+    text-align: center;
+    padding: 4rem 0;
+    color: var(--color-gray);
+  }
+
+  .menu-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 2rem;
+  }
+
+  .menu-item {
+    background: var(--color-white);
+    border-radius: 1rem;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    transition: var(--transition);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .menu-item:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 40px rgba(212, 175, 55, 0.2);
+  }
+
+  .menu-item-image {
+    width: 100%;
+    height: 250px;
+    overflow: hidden;
+    background: var(--color-gray-light);
+  }
+
+  .menu-item-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: var(--transition);
+  }
+
+  .menu-item:hover .menu-item-image img {
+    transform: scale(1.05);
+  }
+
+  .menu-item-content {
+    padding: 1.5rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .menu-item-name {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--color-black);
+  }
+
+  .menu-item-serves {
+    color: var(--color-gray);
+    font-size: 0.95rem;
+    margin-bottom: 1rem;
+  }
+
+  .menu-item-price {
+    margin-top: auto;
+    font-size: 1.1rem;
+    color: var(--color-gray);
+  }
+
+  .price-value {
+    color: var(--color-gold);
+    font-weight: 700;
+    font-size: 1.5rem;
+  }
+
+  @media (max-width: 768px) {
+    .menu-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--color-white) 0%, var(--color-gold-light) 100%);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -50%;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, rgba(212, 175, 55, 0.1) 0%, transparent 70%);
+    animation: float 20s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(-20px, 20px); }
+  }
+
+  .hero-content {
+    text-align: center;
+    z-index: 1;
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .hero-content.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .hero-title {
+    font-size: clamp(3rem, 8vw, 6rem);
+    font-weight: 700;
+    margin-bottom: 1rem;
+    line-height: 1.1;
+  }
+
+  .gold-text {
+    color: var(--color-gold);
+    display: block;
+  }
+
+  .hero-subtitle {
+    font-size: clamp(1.25rem, 3vw, 2rem);
+    color: var(--color-gray);
+    margin-bottom: 1.5rem;
+    font-weight: 300;
+  }
+
+  .hero-description {
+    font-size: clamp(1rem, 2vw, 1.25rem);
+    color: var(--color-gray);
+    max-width: 600px;
+    margin: 0 auto 3rem;
+    line-height: 1.8;
+  }
+
+  .scroll-indicator {
+    margin-top: 4rem;
+    color: var(--color-gold);
+    cursor: pointer;
+    animation: bounce 2s infinite;
+  }
+
+  @keyframes bounce {
+    0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-10px); }
+    60% { transform: translateY(-5px); }
+  }
+
+  .scroll-indicator svg {
+    margin: 0 auto;
+  }
+
+  @media (max-width: 768px) {
+    .hero {
+      min-height: 80vh;
+    }
+  }
+</style>
