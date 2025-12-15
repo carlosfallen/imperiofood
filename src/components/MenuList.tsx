@@ -119,7 +119,7 @@ export default function MenuList(props: Props) {
 
       <div class="container">
         <h2 class="section-title">Nosso Cardápio</h2>
-
+ 
         <div class="menu-grid">
           <For each={props.initialProducts}>
             {(product) => (

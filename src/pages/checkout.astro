@@ -243,7 +243,6 @@ const isExternalOrder = orderOrigin?.type === 'external';
         if (orderOrigin?.type === 'external') {
           orderType = isDelivery ? 'delivery' : 'pickup';
         }
-
         const orderData = {
           order_type: orderType,
           table_id: orderOrigin?.tableId || null,

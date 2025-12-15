@@ -1,5 +1,4 @@
 ---
-// FILE: src/pages/produto/[slug].astro
 import Layout from '../../layouts/Layout.astro';
 import Video360Player from '../../components/Video360Player';
 import Cart from '../../components/Cart';
@@ -144,12 +143,12 @@ const { results: addons } = await DB.prepare(`
   <Cart client:load />
 </Layout>
 
-<script>
+<script define:vars={{ productId: product.id, productName: product.name, productImage: product.image_url, basePrice: product.base_price }}>
   const product = {
-    id: document.querySelector('.product-title')?.getAttribute('data-product-id') || '',
-    name: document.querySelector('.product-title')?.textContent || '',
-    image: document.querySelector('.product-image')?.getAttribute('src') || '',
-    basePrice: parseFloat(document.getElementById('totalPrice')?.textContent?.replace('R$ ', '').replace(',', '.') || '0')
+    id: productId,
+    name: productName,
+    image: productImage || '',
+    basePrice: basePrice
   };
 
   let quantity = 1;
@@ -255,14 +254,13 @@ const { results: addons } = await DB.prepare(`
 
   document.querySelectorAll('#addons input[type="checkbox"]').forEach(input => {
     input.addEventListener('change', (e) => {
-      const target = e.target as HTMLInputElement;
       const addon = {
-        id: target.getAttribute('data-addon-id') || '',
-        name: target.getAttribute('data-addon-name') || '',
-        price: parseFloat(target.getAttribute('data-addon-price') || '0')
+        id: e.target.getAttribute('data-addon-id') || '',
+        name: e.target.getAttribute('data-addon-name') || '',
+        price: parseFloat(e.target.getAttribute('data-addon-price') || '0')
       };
       
-      if (target.checked) {
+      if (e.target.checked) {
         selectedAddons.push(addon);
       } else {
         selectedAddons = selectedAddons.filter(a => a.id !== addon.id);
@@ -280,17 +278,11 @@ const { results: addons } = await DB.prepare(`
       return Date.now().toString(36) + Math.random().toString(36).substr(2);
     };
 
-    const productData = {
-      id: document.querySelector('.product-page')?.getAttribute('data-product-id') || generateId(),
-      name: document.querySelector('.product-title')?.textContent || '',
-      image: (document.querySelector('.product-image') as HTMLImageElement)?.src || ''
-    };
-
     const cartItem = {
       id: generateId(),
-      productId: productData.id,
-      productName: productData.name,
-      productImage: productData.image,
+      productId: product.id,
+      productName: product.name,
+      productImage: product.image,
       size: selectedSize,
       flavor: selectedFlavor,
       addons: selectedAddons,
@@ -317,18 +309,7 @@ const { results: addons } = await DB.prepare(`
     
     window.dispatchEvent(new Event('cart-updated'));
     window.dispatchEvent(new Event('storage'));
-    
-    alert('Produto adicionado ao carrinho!');
   });
-
-  const productPage = document.querySelector('.product-page');
-  const productTitle = document.querySelector('.product-title');
-  if (productPage && productTitle) {
-    const urlParts = window.location.pathname.split('/');
-    const slug = urlParts[urlParts.length - 1];
-    productPage.setAttribute('data-product-id', slug);
-    productTitle.setAttribute('data-product-id', slug);
-  }
 </script>
 
 <style>
